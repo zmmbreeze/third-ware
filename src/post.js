@@ -12,7 +12,7 @@ module.exports = (callback, opts) => {
     const encodingKey = opts.encodingKey || 'encoding';
     const defaultEncoding = opts.encoding || 'utf-8';
     if (!iconv.encodingExists(defaultEncoding)) {
-        throw new Error(`[CORS][post] Encoding "${defaultEncoding}" is not supported.`);
+        throw new Error(`[third-ware][post] Encoding "${defaultEncoding}" is not supported.`);
     }
 
     return (req, res, next) => {

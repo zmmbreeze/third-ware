@@ -1,7 +1,7 @@
 const qs = require('qs');
 const url = require('url');
 const iconv = require('iconv-lite');
-const LOG_PREFIX = '[third-server][jsonp]';
+const LOG_PREFIX = '[third-ware][jsonp]';
 
 module.exports = (callback, opts) => {
     opts = opts || {};
