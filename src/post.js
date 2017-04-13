@@ -2,6 +2,7 @@ const url = require('url');
 const qs = require('qs');
 const iconv = require('iconv-lite');
 const bodyParser = require('body-parser');
+const multiparty = require('multiparty');
 const urlencodedParser = bodyParser.urlencoded({
     extended: true
 });
@@ -18,6 +19,11 @@ module.exports = (callback, opts) => {
     return (req, res, next) => {
         const queryParts = qs.parse(url.parse(req.url).query);
         let callbackName = queryParts[callbackNameKey];
+        if (!callbackName.match(/^[0-9a-zA-Z_]+$/)) {
+            next(new Error(`[third-ware][post] Wrong format for "${callbackNameKey}=${callbackName}".`));
+            return;
+        }
+
         let encoding = queryParts[encodingKey] || defaultEncoding;
         if (!iconv.encodingExists(encoding)) {
             encoding = defaultEncoding;
@@ -31,10 +37,31 @@ module.exports = (callback, opts) => {
             return;
         }
 
-        // POST, PUT, DELETE
-        urlencodedParser(req, res, () => {
-            done(req.body);
-        });
+        const contentType = req.headers['content-type'] || '';
+        if (contentType.split(';')[0].toLowerCase() === 'multipart/form-data') {
+            // multipart/form-data
+            const form = new multiparty.Form();
+            form.parse(req, (err, fields, files) => {
+                const data = {};
+                Object.keys(fields).forEach((name) => {
+                    const fieldValues = fields[name];
+                    data[name] = fieldValues.length === 1 ? fieldValues[0] : fieldValues;
+                });
+
+                Object.keys(files).forEach((name) => {
+                    const fileValues = files[name];
+                    data[name] = fileValues.length === 1 ? fileValues[0] : fileValues;
+                });
+                done(data);
+            });
+        }
+        else {
+            // application/x-www-form-urlencoded
+            // POST, PUT, DELETE
+            urlencodedParser(req, res, () => {
+                done(req.body);
+            });
+        }
 
         function done(data) {
             let result = callback(data, req, res);
@@ -52,13 +79,17 @@ module.exports = (callback, opts) => {
             if (result == null) {
                 result = '';
             }
-            result = JSON.stringify(result);
+            const resultIsString = typeof result === 'string';
+            if (!resultIsString) {
+                result = JSON.stringify(result);
+            }
 
             if (!callbackName) {
                 const referer = req.headers.referer ? url.parse(req.headers.referer) : null;
                 const refOrigin = referer ? `${referer.protocol}//${referer.host}` : '*';
                 // POST return JSON
-                res.setHeader('Content-Type', `application/json; charset=${encoding}`);
+                const resultContentType = resultIsString ? 'text/plain' : 'application/json';
+                res.setHeader('Content-Type', `${resultContentType}; charset=${encoding}`);
                 res.setHeader('Access-Control-Allow-Origin', refOrigin);
                 res.setHeader('Access-Control-Allow-Credentials', 'true');
             }
@@ -74,15 +105,15 @@ module.exports = (callback, opts) => {
                     </head>
                     <body>
                         <script>
-                        const data = ${result};
-                        const callback = ${callbackName};
+                        const data = ${JSON.stringify(result)};
+                        const callbackName = ${callbackName};
                         (function () {
                             const supportPM = 'postMessage' in window;
                             const sendByPostMessage = function (data) {
-                                window.parent.postMessage(data, '*');
+                                window.parent.postMessage(callbackName + data, '*');
                             };
                             const sendByNavigator = function (callback, data) {
-                                const navigatorCallback = window.navigator[callback];
+                                const navigatorCallback = window.navigator[callbackName];
                                 if (typeof navigatorCallback !== 'function') {
                                     return;
                                 }
@@ -99,7 +130,7 @@ module.exports = (callback, opts) => {
                                 const useDefaultPort = (DEFAULT_PORT_MAP[ptl] + '') === port;
                                 const host = hostname + (useDefaultPort  ? '' : (':' + port));
                                 navigatorCallback({
-                                    message: data + '',
+                                    message: callbackName + data + '',
                                     origin: protocol + '//' + host
                                 });
                             };
